@@ -18,12 +18,40 @@ app.use(bodyParser.json());
 // from a cloud data store
 const mockEvents = {
     events: [
-        { title: 'an event', id: 1, description: 'something really cool' },
-        { title: 'another event', id: 2, description: 'something even cooler' }
+        { title: 'an event', id: 1, description: 'something really cool', location: 'Joes pizza', likes: 0 },
+        { title: 'another event', id: 2, description: 'something even cooler', location: 'Johns pizza', likes: 0 }
     ]
 };
 
+// bring in firestore
+const Firestore = require("@google-cloud/firestore");
 
+// initialize Firestore and set project id from env var
+const firestore = new Firestore(
+    {
+        projectId: process.env.GOOGLE_CLOUD_PROJECT
+    }
+);
+
+function getEvents(req, res) {
+    firestore.collection("Events").get()
+        .then((snapshot) => {
+            if (!snapshot.empty) {
+                const ret = { events: []};
+                snapshot.docs.forEach(element => {
+                    ret.events.push(element.data());
+                }, this);
+                console.log(ret);
+                res.json(ret);
+            } else {
+                 res.json(mockEvents);
+            }
+        })
+        .catch((err) => {
+            console.error('Error getting events', err);
+            res.json(mockEvents);
+        });
+};
 
 
 // health endpoint - returns an empty array
@@ -40,7 +68,7 @@ app.get('/version', (req, res) => {
 // mock events endpoint. this would be replaced by a call to a datastore
 // if you went on to develop this as a real application.
 app.get('/events', (req, res) => {
-    res.json(mockEvents);
+   getEvents(req, res);
 });
 
 // Adds an event - in a real solution, this would insert into a cloud datastore.
@@ -52,13 +80,44 @@ app.post('/event', (req, res) => {
         title: req.body.title, 
         description: req.body.description,
         date: req.body.date,
+        location: req.body.location,
+        likes: 0,
         id : mockEvents.events.length + 1
      }
-    // add to the mock array
-    mockEvents.events.push(ev);
-    // return the complete array
+    // this will create the Events collection if it does not exist
+    firestore.collection("Events").add(ev).then(ret => {
+        getEvents(req, res);
+    });
+
+});
+
+
+
+// Likes an event - in a real solution, this would update a cloud datastore.
+// Currently this simply increments the like counter in the mock array in memory
+// this will produce unexpected behavior in a stateless kubernetes cluster. 
+app.post('/event/like', (req, res) => {
+    console.log (req.body.id);
+    var objIndex = mockEvents.events.findIndex((obj => obj.id == req.body.id));
+    var likes = mockEvents.events[objIndex].likes;
+    mockEvents.events[objIndex].likes = ++likes;
     res.json(mockEvents);
 });
+
+// unlikes an event - in a real solution, this would update a cloud datastore.
+// Currently this simply decrements the like counter in the mock array in memory
+// this will produce unexpected behavior in a stateless kubernetes cluster. 
+app.delete('/event/like', (req, res) => {
+
+    console.log (req.body.id);
+    var objIndex = mockEvents.events.findIndex((obj => obj.id == req.body.id));
+    var likes = mockEvents.events[objIndex].likes;
+    if (likes > 0) {
+        mockEvents.events[objIndex].likes = --likes;
+    }
+    res.json(mockEvents);
+});
+
 
 app.use((err, req, res, next) => {
     console.error(err.stack);
